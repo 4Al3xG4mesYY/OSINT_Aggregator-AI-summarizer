@@ -1,20 +1,19 @@
-# google_alert_scraper_api.py
+# google_alert_scraper_api.py (Advanced Version)
 
-# This script is a multi-source OSINT aggregator. It securely connects to your
-# Gmail account to fetch Google Alerts and also scrapes RSS feeds. It visits
-# each article URL, scrapes the content, uses the Gemini AI to generate a
-# two-sentence summary, and formats the output into a clean, organized report.
+# This script is a multi-source OSINT aggregator with an advanced scraping engine
+# and a data re-processing workflow. It fetches intelligence, scrapes content,
+# generates AI summaries, and stores results in a database.
 #
 # Dependencies:
-# Run this single command in your activated virtual environment to install all packages:
-# pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib beautifulsoup4 lxml newspaper3k nltk lxml_html_clean requests feedparser
+# Run this command in your activated venv to install all packages:
+# python -m pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib beautifulsoup4 lxml newspaper3k nltk lxml_html_clean requests feedparser curl_cffi selenium
 #
 # How to Use:
-# 1. Complete the setup for `credentials.json` (Gmail API) and your Gemini API Key.
-# 2. PASTE YOUR GEMINI API KEY into the script below.
-# 3. (Optional) Add RSS feed URLs to the `RSS_FEEDS` list below.
-# 4. Run from your terminal with one or more keywords:
-#    python google_alert_scraper_api.py "Ransomware" "ICS Cyber" "Malware"
+# 1. Normal Run (collect new articles):
+#    python google_alert_scraper_api.py "Ransomware" "Malware"
+#
+# 2. Re-processing Run (retry failed scrapes with Selenium):
+#    python google_alert_scraper_api.py --retry-fallbacks
 
 import base64
 import email
@@ -37,7 +36,11 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from newspaper import Article, Config
+from newspaper import Article
+from curl_cffi import requests as curl_requests # For impersonating browsers
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options
 
 # --- CONFIGURATION ---
 
@@ -48,23 +51,12 @@ RSS_FEEDS = {
     "Dark Reading": "https://www.darkreading.com/rss_simple.asp",
 }
 
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0',
-]
-
-RETRY_CONFIG = {
-    "max_retries": 3,
-    "initial_delay": 5
-}
-
 DB_FILE = "osint_database.db"
 
 # --- DATABASE SETUP ---
 
 def setup_database():
-    """Creates the database and table if they don't exist."""
+    """Creates/updates the database and table if they don't exist."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute('''
@@ -73,9 +65,16 @@ def setup_database():
             url TEXT UNIQUE NOT NULL,
             source_name TEXT NOT NULL,
             post_content TEXT NOT NULL,
+            summary_type TEXT NOT NULL, -- 'ai' or 'fallback'
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    cursor.execute("PRAGMA table_info(articles)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'summary_type' not in columns:
+        cursor.execute("ALTER TABLE articles ADD COLUMN summary_type TEXT NOT NULL DEFAULT 'fallback'")
+        print("Database schema updated with 'summary_type' column.")
+
     conn.commit()
     conn.close()
 
@@ -88,20 +87,33 @@ def is_url_in_db(url):
     conn.close()
     return result is not None
 
-def add_post_to_db(source_name, post_content, url):
+def add_post_to_db(source_name, post_content, url, summary_type):
     """Adds a new processed article to the database."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "INSERT INTO articles (source_name, post_content, url) VALUES (?, ?, ?)",
-            (source_name, post_content, url)
+            "INSERT INTO articles (source_name, post_content, url, summary_type) VALUES (?, ?, ?, ?)",
+            (source_name, post_content, url, summary_type)
         )
         conn.commit()
     except sqlite3.IntegrityError:
         print(f"  > Note: URL {url} was already in DB (IntegrityError).")
     finally:
         conn.close()
+
+def update_post_in_db(url, new_post_content, new_summary_type):
+    """Updates an existing article in the database, typically after a successful re-scrape."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE articles SET post_content = ?, summary_type = ? WHERE url = ?",
+        (new_post_content, new_summary_type, url)
+    )
+    conn.commit()
+    conn.close()
+    print(f"  > Successfully updated article in database: {url}")
+
 
 # --- NLTK SETUP ---
 try:
@@ -182,7 +194,7 @@ def summarize_with_gemini(text):
         payload = {"contents": chat_history}
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
         
-        response = requests.post(api_url, json=payload)
+        response = requests.post(api_url, json=payload, timeout=20)
         
         if response.status_code == 200:
             result = response.json()
@@ -199,42 +211,77 @@ def summarize_with_gemini(text):
         return None
 
 def scrape_article_details(url):
-    """Scrapes an article URL with retries and rotating user-agents."""
-    print(f"  > Scraping article: {url}")
-    
-    for attempt in range(RETRY_CONFIG["max_retries"]):
-        try:
-            config = Config()
-            config.browser_user_agent = random.choice(USER_AGENTS)
-            config.request_timeout = 10
+    """Scrapes an article URL using curl_cffi to bypass anti-scraping."""
+    print(f"  > Scraping article with advanced client: {url}")
+    try:
+        response = curl_requests.get(url, impersonate="chrome110", timeout=15)
+        response.raise_for_status()
 
-            article = Article(url, config=config)
-            article.download()
-            article.parse()
-            
-            return article.text, article.publish_date
+        article = Article(url)
+        article.set_html(response.content)
+        article.parse()
         
-        except Exception as e:
-            print(f"    > Attempt {attempt + 1} failed: {e}")
-            if attempt < RETRY_CONFIG["max_retries"] - 1:
-                delay = RETRY_CONFIG["initial_delay"] * (2 ** attempt)
-                print(f"    > Retrying in {delay} seconds...")
-                time.sleep(delay)
-            else:
-                print(f"    > All {RETRY_CONFIG['max_retries']} attempts failed. Giving up on this article.")
-                return None, None
-    return None, None
+        return article.text, article.publish_date
+    except Exception as e:
+        print(f"    > Advanced scraping failed: {e}")
+        return None, None
 
-def process_article(source_name, title, url, description, default_date):
+def scrape_with_selenium(url):
+    """Scrapes a URL using Selenium for JavaScript-heavy sites."""
+    print(f"  > Scraping with Selenium (Headless Chrome): {url}")
+    text = None
+    publish_date = None
+    
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+    driver = None
+    try:
+        # Selenium Manager will automatically handle the driver download and setup
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.get(url)
+        # Wait a few seconds for dynamic content to load
+        time.sleep(5)
+        
+        # Use newspaper3k to parse the page source from Selenium
+        article = Article(url)
+        article.set_html(driver.page_source)
+        article.parse()
+        
+        text = article.text
+        publish_date = article.publish_date
+        print("    > Selenium scrape successful.")
+
+    except Exception as e:
+        print(f"    > Selenium scraping failed: {e}")
+    finally:
+        if driver:
+            driver.quit()
+            
+    return text, publish_date
+
+
+def process_article(source_name, title, url, description, default_date, is_retry=False):
     """Shared logic to process a single article from any source."""
-    if is_url_in_db(url):
+    if not is_retry and is_url_in_db(url):
         print(f"  > Skipping duplicate article: {url}")
         return
 
     print(f"\nProcessing article from '{source_name}': {title}")
-    article_text, publish_date = scrape_article_details(url)
+    
+    if is_retry:
+        # Use the most powerful scraping method for retries
+        article_text, publish_date = scrape_with_selenium(url)
+    else:
+        # Use the faster curl_cffi method for the initial run
+        article_text, publish_date = scrape_article_details(url)
 
     summary = summarize_with_gemini(article_text)
+    summary_type = 'ai' if summary else 'fallback'
+
     if not summary:
         print("    > Fallback: using summary from source.")
         summary = create_summary(title, description)
@@ -250,7 +297,11 @@ def process_article(source_name, title, url, description, default_date):
         f"{' '.join(hashtags)}\n"
         f"{url}\n"
     )
-    add_post_to_db(source_name, post_content, url)
+
+    if is_retry:
+        update_post_in_db(url, post_content, summary_type)
+    else:
+        add_post_to_db(source_name, post_content, url, summary_type)
 
 def parse_google_alert(keyword, email_bytes):
     """Parses a Google Alert email and processes its articles."""
@@ -259,7 +310,8 @@ def parse_google_alert(keyword, email_bytes):
         
     msg = email.message_from_bytes(email_bytes, policy=policy.default)
     email_date = email.utils.parsedate_to_datetime(msg['Date'])
-
+    source_name = f"Google Alert: {keyword}"
+    
     html_payload = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -267,12 +319,9 @@ def parse_google_alert(keyword, email_bytes):
                 html_payload = part.get_payload(decode=True).decode(part.get_content_charset(), 'ignore')
                 break
     
-    if not html_payload:
-        return
+    if not html_payload: return
 
     soup = BeautifulSoup(html_payload, 'lxml')
-    source_name = f"Google Alert: {keyword}"
-    
     json_script_tag = soup.find('script', {'data-scope': 'inboxmarkup'})
     if json_script_tag:
         try:
@@ -305,6 +354,31 @@ def process_rss_feed(name, url):
             
     except Exception as e:
         print(f"  > An error occurred while processing RSS feed {name}: {e}")
+
+def retry_fallback_summaries():
+    """Queries DB for fallback summaries and attempts to re-process them with Selenium."""
+    print("\n--- Starting Re-Processing Mode for Fallback Summaries ---")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT url, source_name, post_content FROM articles WHERE summary_type = 'fallback'")
+    fallbacks = cursor.fetchall()
+    conn.close()
+
+    if not fallbacks:
+        print("  > No articles with fallback summaries found to re-process.")
+        return
+
+    print(f"  > Found {len(fallbacks)} articles to re-process.")
+    for url, source_name, post_content in fallbacks:
+        lines = post_content.split('\n')
+        date_str = lines[0]
+        summary_line = lines[1]
+        title = summary_line.split(' - ')[0]
+        description = ' '.join(summary_line.split(' - ')[1:])
+        default_date = datetime.strptime(date_str, "%A, %B %d, %Y")
+
+        process_article(source_name, title, url, description, default_date, is_retry=True)
+
 
 # --- Helper functions ---
 
@@ -365,30 +439,34 @@ def generate_report():
         print("\nNo new articles were found to generate a report.")
 
 def main():
-    if len(sys.argv) < 2:
-        print("\nUsage: python google_alert_scraper_api.py \"<keyword1>\" \"<keyword2>\" ...")
-        sys.exit(1)
-
-    start_time = time.time() # Record the start time
-    
+    start_time = time.time()
     setup_database()
-    alert_keywords = sys.argv[1:]
-    
-    print("Connecting to Gmail API...")
-    service = get_gmail_service()
-    
-    if service:
-        for keyword in alert_keywords:
-            email_bytes = get_latest_google_alert(service, keyword)
-            if email_bytes:
-                parse_google_alert(keyword, email_bytes)
 
-    for name, url in RSS_FEEDS.items():
-        process_rss_feed(name, url)
+    if len(sys.argv) > 1 and sys.argv[1] == '--retry-fallbacks':
+        retry_fallback_summaries()
+    elif len(sys.argv) > 1:
+        alert_keywords = sys.argv[1:]
+        
+        print("Connecting to Gmail API...")
+        service = get_gmail_service()
+        
+        if service:
+            for keyword in alert_keywords:
+                email_bytes = get_latest_google_alert(service, keyword)
+                if email_bytes:
+                    parse_google_alert(keyword, email_bytes)
+
+        for name, url in RSS_FEEDS.items():
+            process_rss_feed(name, url)
+    else:
+        print("\nUsage:")
+        print("  Normal Run: python google_alert_scraper_api.py \"<keyword1>\" \"<keyword2>\" ...")
+        print("  Retry Run:  python google_alert_scraper_api.py --retry-fallbacks")
+        sys.exit(1)
 
     generate_report()
 
-    end_time = time.time() # Record the end time
+    end_time = time.time()
     elapsed_time = end_time - start_time
     print(f"\n--- Script finished in {elapsed_time:.2f} seconds ---")
 
