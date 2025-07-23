@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-# google_alert_scraper_api.py (Advanced Version)
+# google_alert_scraper_api.py (Final Version)
 
-# This script is a multi-source OSINT aggregator with an advanced scraping engine
-# and a data re-processing workflow. It fetches intelligence, scrapes content,
-# generates AI summaries, and stores results in a database. It also integrates
-# with Slack to avoid duplicating work already covered by a human team.
+# This script is a multi-source OSINT aggregator with an advanced scraping engine,
+# a data re-processing workflow, and AI-powered categorization. It fetches
+# intelligence, scrapes content, generates AI summaries & topics, and stores
+# results in a database. It also integrates with Slack to avoid duplicating
+# work already covered by a human team.
 #
 # Dependencies:
 # python -m pip install -r requirements.txt
@@ -21,7 +22,7 @@ import os.path
 import sys
 import time
 from email import policy
-from urllib.parse import parse_qs, urlparse, unquote
+from urllib.parse import parse_qs, urlparse
 from datetime import datetime
 import random
 import sqlite3
@@ -51,7 +52,6 @@ RSS_FEEDS = {
     "Dark Reading": "https://www.darkreading.com/rss_simple.asp",
 }
 
-# --- SLACK CONFIGURATION ---
 SLACK_CONFIG = {
     "enabled": False,
     "bot_token": "xoxb-YOUR-SLACK-BOT-TOKEN-HERE",
@@ -73,15 +73,16 @@ def setup_database():
             url TEXT UNIQUE NOT NULL,
             source_name TEXT NOT NULL,
             post_content TEXT NOT NULL,
-            source_indicator TEXT NOT NULL, -- 'ai', 'fallback', or 'slack'
+            source_indicator TEXT NOT NULL,
+            main_topic TEXT, -- New column for category
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     cursor.execute("PRAGMA table_info(articles)")
     columns = [column[1] for column in cursor.fetchall()]
-    if 'source_indicator' not in columns:
-        cursor.execute("ALTER TABLE articles RENAME COLUMN summary_type TO source_indicator")
-        print("Database schema updated: 'summary_type' renamed to 'source_indicator'.")
+    if 'main_topic' not in columns:
+        cursor.execute("ALTER TABLE articles ADD COLUMN main_topic TEXT")
+        print("Database schema updated with 'main_topic' column.")
 
     conn.commit()
     conn.close()
@@ -94,13 +95,13 @@ def is_url_in_db(url):
     conn.close()
     return result is not None
 
-def add_post_to_db(source_name, post_content, url, source_indicator):
+def add_post_to_db(source_name, post_content, url, source_indicator, main_topic):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "INSERT INTO articles (source_name, post_content, url, source_indicator) VALUES (?, ?, ?, ?)",
-            (source_name, post_content, url, source_indicator)
+            "INSERT INTO articles (source_name, post_content, url, source_indicator, main_topic) VALUES (?, ?, ?, ?, ?)",
+            (source_name, post_content, url, source_indicator, main_topic)
         )
         conn.commit()
     except sqlite3.IntegrityError:
@@ -108,12 +109,12 @@ def add_post_to_db(source_name, post_content, url, source_indicator):
     finally:
         conn.close()
 
-def update_post_in_db(url, new_post_content, new_source_indicator):
+def update_post_in_db(url, new_post_content, new_source_indicator, new_main_topic):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE articles SET post_content = ?, source_indicator = ? WHERE url = ?",
-        (new_post_content, new_source_indicator, url)
+        "UPDATE articles SET post_content = ?, source_indicator = ?, main_topic = ? WHERE url = ?",
+        (new_post_content, new_source_indicator, new_main_topic, url)
     )
     conn.commit()
     conn.close()
@@ -169,40 +170,51 @@ def get_latest_google_alert(service, keyword):
         print(f'  > An error occurred while fetching the email for "{keyword}": {error}')
         return None
 
-def summarize_with_gemini(text):
+def summarize_and_categorize_with_gemini(text):
+    """Uses Gemini AI to generate a summary and categorize the article."""
     if not text or len(text.strip()) < 50:
-        print("    > Article text too short, skipping AI summary.")
-        return None
+        print("    > Article text too short, skipping AI analysis.")
+        return None, None
     api_key = "YOUR_GEMINI_API_KEY_HERE"
     if "YOUR_GEMINI_API_KEY_HERE" in api_key:
         print("\nERROR: Gemini API key not found.")
-        return None
-    prompt = f"Summarize the following article in exactly two sentences for a social media post:\n\n---\n\n{text}"
+        return None, None
+
+    categories = ["Malware Analysis", "Vulnerability Disclosure", "Threat Actor Profile", "Data Breach Report", "Geopolitical Cyber Event", "General Cyber News"]
+    prompt = f"""Analyze the following article. First, provide a two-sentence summary for a social media post. Second, classify the article into one of the following categories: {', '.join(categories)}.
+    
+    Provide your response as a valid JSON object with two keys: "summary" and "category".
+    
+    Article:
+    ---
+    {text}
+    """
     for attempt in range(RETRY_CONFIG["max_retries"]):
         try:
             print("    > Waiting to respect API rate limit...")
             time.sleep(4)
-            print(f"    > Summarizing with AI (Attempt {attempt + 1})...")
+            print(f"    > Analyzing with AI (Attempt {attempt + 1})...")
             payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
             api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
             response = requests.post(api_url, json=payload, timeout=30)
             if response.status_code == 200:
                 result = response.json()
                 if result.get('candidates'):
-                    return result['candidates'][0]['content']['parts'][0]['text'].strip()
-                else:
-                    return None
+                    content = result['candidates'][0]['content']['parts'][0]['text']
+                    clean_content = content.strip().replace('```json', '').replace('```', '')
+                    data = json.loads(clean_content)
+                    return data.get('summary'), data.get('category')
+                else: return None, None
             elif response.status_code in [503, 408, 500, 502, 504]:
                  time.sleep(RETRY_CONFIG["initial_delay"] * (2 ** attempt))
                  continue
-            else:
-                return None
-        except requests.exceptions.RequestException as e:
+            else: return None, None
+        except Exception as e:
+            print(f"    > An error occurred during AI analysis: {e}")
             if attempt < RETRY_CONFIG["max_retries"] - 1:
                  time.sleep(RETRY_CONFIG["initial_delay"] * (2 ** attempt))
-            else:
-                return None
-    return None
+            else: return None, None
+    return None, None
 
 def scrape_article_details(url):
     print(f"  > Scraping article with advanced client: {url}")
@@ -253,15 +265,17 @@ def process_article(source_name, title, url, description, default_date, slack_ca
         slack_summary, slack_date = slack_cache[url]
         hashtags, emojis = generate_tags_and_emojis(slack_summary)
         post_content = (
-            f"{slack_date.strftime('%A, %B %d, %Y')}\n"
+            f"CATEGORY: Human Verified\n"
+            f"Published: {slack_date.strftime('%A, %B %d, %Y')}\n"
+            f"Added: {datetime.now().strftime('%A, %B %d, %Y')}\n"
             f"{slack_summary} [VERIFIED BY SLACK]{''.join(emojis)}\n"
             f"{' '.join(hashtags)}\n"
             f"{url}\n"
         )
         if is_url_in_db(url):
-             update_post_in_db(url, post_content, 'slack')
+             update_post_in_db(url, post_content, 'slack', 'Human Verified')
         else:
-             add_post_to_db(source_name, post_content, url, 'slack')
+             add_post_to_db(source_name, post_content, url, 'slack', 'Human Verified')
         return 'slack'
 
     print(f"\nProcessing article from '{source_name}': {title}")
@@ -271,28 +285,30 @@ def process_article(source_name, title, url, description, default_date, slack_ca
     else:
         article_text, publish_date = scrape_article_details(url)
 
-    summary = summarize_with_gemini(article_text)
+    summary, category = summarize_and_categorize_with_gemini(article_text)
     source_indicator = 'ai' if summary else 'fallback'
 
     if not summary:
         print("    > Fallback: using summary from source.")
         summary = create_summary(title, description)
+        category = "Unknown"
 
     display_date = publish_date if publish_date else default_date
-    formatted_date = display_date.strftime("%A, %B %d, %Y")
-
+    
     hashtags, emojis = generate_tags_and_emojis(summary)
     post_content = (
-        f"{formatted_date}\n"
+        f"CATEGORY: {category}\n"
+        f"Published: {display_date.strftime('%A, %B %d, %Y')}\n"
+        f"Added: {datetime.now().strftime('%A, %B %d, %Y')}\n"
         f"{summary}{''.join(emojis)}\n"
         f"{' '.join(hashtags)}\n"
         f"{url}\n"
     )
 
     if is_retry:
-        update_post_in_db(url, post_content, source_indicator)
+        update_post_in_db(url, post_content, source_indicator, category)
     else:
-        add_post_to_db(source_name, post_content, url, source_indicator)
+        add_post_to_db(source_name, post_content, url, source_indicator, category)
     
     return source_indicator
 
@@ -350,10 +366,11 @@ def retry_fallback_summaries(slack_cache):
     print(f"  > Found {total_to_retry} articles to re-process.")
     for url, source_name, post_content in fallbacks:
         lines = post_content.split('\n')
-        date_str, summary_line = lines[0], lines[1]
+        # Adjust for new date lines
+        date_str, summary_line = lines[1], lines[3] 
         title = summary_line.split(' - ')[0]
         description = ' '.join(summary_line.split(' - ')[1:])
-        default_date = datetime.strptime(date_str, "%A, %B %d, %Y")
+        default_date = datetime.strptime(date_str.replace("Published: ", ""), "%A, %B %d, %Y")
         result = process_article(source_name, title, url, description, default_date, slack_cache, is_retry=True)
         if result == 'ai':
             successful_heals += 1
