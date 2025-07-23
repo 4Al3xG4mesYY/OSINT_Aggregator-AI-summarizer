@@ -4,31 +4,25 @@
 
 This project is a Python-based Open-Source Intelligence (OSINT) tool designed to automate the collection and processing of cybersecurity news. It aggregates articles from multiple sources, including custom Google Alerts and RSS feeds, scrapes the full content of each article, and utilizes the Gemini AI API to generate concise, two-sentence summaries. The results are stored in a local SQLite database to prevent duplicates and are compiled into a clean, organized daily intelligence briefing.
 
-This tool was developed to streamline the threat intelligence workflow, providing a rapid, automated way to stay informed on emerging threats, vulnerabilities, and cyber events.
+A key feature is the "human-in-the-loop" integration with Slack, which allows the tool to de-conflict its automated collection with the work of a human analysis team, preventing duplicate efforts.
 
 ## Features
 
 * **Multi-Source Collection:** Gathers intelligence from both Google Alerts (via the Gmail API) and a configurable list of RSS feeds.
-* **Intelligent Scraping:** Employs the `newspaper3k` library to extract clean article text and metadata, with built-in retries and rotating user-agents to handle anti-scraping measures.
-* **AI-Powered Summarization:** Leverages the Gemini API (`gemini-1.5-flash-latest`) to generate unique, two-sentence summaries of article content, with a graceful fallback to email snippets if scraping or AI fails.
+* **Advanced Scraping Engine:**
+    * **Browser Impersonation:** Uses `curl_cffi` to mimic a browser's TLS fingerprint, bypassing advanced anti-bot services like Cloudflare.
+    * **Dynamic Content Handling:** Employs **Selenium** to control a headless Chrome browser, enabling the scraping of JavaScript-heavy websites.
+* **AI-Powered Summarization:** Leverages the Gemini API (`gemini-1.5-flash-latest`) to generate unique, two-sentence summaries of article content.
 * **Data Persistence & Deduplication:** Stores all processed articles in an SQLite database, preventing duplicate entries in the final report.
-* **Organized Reporting:** Generates a clean `.txt` report with articles grouped by their intelligence source (e.g., "Google Alert: Ransomware", "RSS: Bleeping Computer").
-* **Resilient & Professional:** Includes robust error handling, API rate-limit management, and secure authentication via OAuth 2.0.
+* **"Data Healing" Workflow:** A `--retry-fallbacks` mode uses the powerful Selenium scraper to re-process articles that failed during the initial, faster collection run, improving the quality of the dataset over time.
+* **Slack Integration:** Checks a designated Slack channel to see if an article has already been covered by a human analyst. If so, it saves the human-written summary and skips automated processing.
+* **Organized Reporting:** Generates a clean `.txt` report with articles grouped by source and clear indicators for AI-generated vs. Slack-verified summaries.
 
 ## Tech Stack
 
 * **Programming Language:** Python 3
-* **Key Libraries:**
-    * `google-api-python-client`: For interacting with the Gmail API.
-    * `requests`: For synchronous HTTP requests to the Gemini API.
-    * `newspaper3k`: For article scraping and content extraction.
-    * `feedparser`: For parsing RSS feeds.
-    * `BeautifulSoup4` & `lxml`: For HTML parsing.
-    * `nltk`: For natural language processing tasks required by `newspaper3k`.
-    * `sqlite3`: For database storage.
-* **APIs:**
-    * Google Gmail API
-    * Google Gemini API
+* **Key Libraries:** `google-api-python-client`, `requests`, `newspaper3k`, `feedparser`, `curl_cffi`, `selenium`, `slack_sdk`, `sqlite3`
+* **APIs:** Google Gmail API, Google Gemini API, Slack API
 
 ## Setup & Installation
 
@@ -38,38 +32,39 @@ This tool was developed to streamline the threat intelligence workflow, providin
     cd <your-repo-name>
     ```
 
-2.  **Create a Python virtual environment:**
+2.  **Create and activate a Python virtual environment:**
     ```bash
     python3 -m venv venv
     source venv/bin/activate
     ```
 
-3.  **Install dependencies:**
+3.  **Install dependencies from `requirements.txt`:**
     ```bash
-    pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib beautifulsoup4 lxml newspaper3k nltk lxml_html_clean requests feedparser
+    pip install -r requirements.txt
     ```
 
 ## Configuration
 
-Before running the script, you must configure three things:
+Before running, you must configure your API credentials:
 
-1.  **Gmail API Credentials:** Follow Google's documentation to create an OAuth 2.0 Client ID. Download the resulting JSON file and rename it to `credentials.json` in the project's root directory.
-2.  **Gemini API Key:** Generate a free API key from [Google AI Studio](https://aistudio.google.com/). Open `google_alert_scraper_api.py` and paste your key into the `api_key` variable.
-3.  **RSS Feeds (Optional):** Open `google_alert_scraper_api.py` and add or remove URLs from the `RSS_FEEDS` dictionary.
+1.  **Gmail API Credentials:** Follow Google's documentation to create an OAuth 2.0 Client ID. Download the file and rename it to `credentials.json`.
+2.  **Gemini API Key:** Generate a free API key from [Google AI Studio](https://aistudio.google.com/) and paste it into the `api_key` variable in the script.
+3.  **Slack API Token:** Create a Slack App, grant it the `channels:history` and `channels:read` scopes, and get a Bot User OAuth Token and the Channel ID. Paste these into the `SLACK_CONFIG` section of the script.
+
+**Important:** For security, it is highly recommended to store your keys in a `.env` file and use a library like `python-dotenv` to load them, rather than pasting them directly into the script.
 
 ## Usage
 
-Run the script from the command line, providing one or more Google Alert keywords as arguments.
-
+Make the script executable (one-time setup):
 ```bash
-python google_alert_scraper_api.py "Ransomware" "Critical Infrastructure" "Malware"
+chmod +x google_alert_scraper_api.py
 ```
 
-The script will process all sources and generate an `osint_database.db` file and a `scraped_alerts.txt` report.
+**Normal Run (collect new articles):**
+```bash
+./google_alert_scraper_api.py "Ransomware" "Malware"
+```
 
-## Future Improvements
-
-* **Full Automation with Cron:** The next major step is to implement a `cron` job to run the script on a set schedule (e.g., daily) for a true, unattended intelligence feed.
-* **Named Entity Recognition (NER):** Integrate a library like `spaCy` to automatically extract key entities from articles, such as malware names, threat actor groups, and victim organizations.
-* **HTML Reporting:** Upgrade the output from a `.txt` file to a more professional and interactive HTML report.
-* **External Configuration:** Move API keys, keywords, and RSS feeds into a separate `config.ini` file to make the tool easier to manage and more secure.
+**Re-processing Run (retry failed scrapes with Selenium):**
+```bash
+./google_alert_scraper_api.py --retry-fallbacks
