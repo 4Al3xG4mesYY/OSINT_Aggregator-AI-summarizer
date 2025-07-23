@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # google_alert_scraper_api.py (Advanced Version)
 
 # This script is a multi-source OSINT aggregator with an advanced scraping engine
@@ -6,14 +7,17 @@
 #
 # Dependencies:
 # Run this command in your activated venv to install all packages:
-# python -m pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib beautifulsoup4 lxml newspaper3k nltk lxml_html_clean requests feedparser curl_cffi selenium
+# python -m pip install -r requirements.txt
 #
 # How to Use:
-# 1. Normal Run (collect new articles):
-#    python google_alert_scraper_api.py "Ransomware" "Malware"
+# 1. Make the script executable (one-time setup):
+#    chmod +x google_alert_scraper_api.py
 #
-# 2. Re-processing Run (retry failed scrapes with Selenium):
-#    python google_alert_scraper_api.py --retry-fallbacks
+# 2. Normal Run (collect new articles):
+#    ./google_alert_scraper_api.py "Ransomware" "Malware"
+#
+# 3. Re-processing Run (retry failed scrapes with Selenium):
+#    ./google_alert_scraper_api.py --retry-fallbacks
 
 import base64
 import email
@@ -49,6 +53,11 @@ RSS_FEEDS = {
     "Bleeping Computer": "https://www.bleepingcomputer.com/feed/",
     "Krebs on Security": "https://krebsonsecurity.com/feed/",
     "Dark Reading": "https://www.darkreading.com/rss_simple.asp",
+}
+
+RETRY_CONFIG = {
+    "max_retries": 3,
+    "initial_delay": 5
 }
 
 DB_FILE = "osint_database.db"
@@ -172,43 +181,57 @@ def get_latest_google_alert(service, keyword):
         return None
 
 def summarize_with_gemini(text):
-    """Uses the Gemini API to generate a two-sentence summary, with rate limiting."""
-    print("    > Waiting to respect API rate limit...")
-    time.sleep(4)
-    
-    print("    > Summarizing with AI...")
+    """Uses the Gemini API to generate a two-sentence summary, with rate limiting and retries."""
     if not text or len(text.strip()) < 50:
         print("    > Article text too short, skipping AI summary.")
         return None
 
     api_key = "YOUR_GEMINI_API_KEY_HERE"
-
     if "YOUR_GEMINI_API_KEY_HERE" in api_key:
         print("\nERROR: Gemini API key not found.")
         return None
 
     prompt = f"Summarize the following article in exactly two sentences for a social media post:\n\n---\n\n{text}"
     
-    try:
-        chat_history = [{"role": "user", "parts": [{"text": prompt}]}]
-        payload = {"contents": chat_history}
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
-        
-        response = requests.post(api_url, json=payload, timeout=20)
-        
-        if response.status_code == 200:
-            result = response.json()
-            if result.get('candidates'):
-                return result['candidates'][0]['content']['parts'][0]['text'].strip()
+    for attempt in range(RETRY_CONFIG["max_retries"]):
+        try:
+            print("    > Waiting to respect API rate limit...")
+            time.sleep(4)
+            
+            print(f"    > Summarizing with AI (Attempt {attempt + 1})...")
+            chat_history = [{"role": "user", "parts": [{"text": prompt}]}]
+            payload = {"contents": chat_history}
+            api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+            
+            response = requests.post(api_url, json=payload, timeout=30) # Increased timeout
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('candidates'):
+                    return result['candidates'][0]['content']['parts'][0]['text'].strip()
+                else:
+                    print(f"    > AI summary generation failed. API response: {result}")
+                    # Don't retry on a valid response that has no summary (e.g. safety block)
+                    return None
+            
+            # If the error is a server overload (503) or timeout, we should retry
+            elif response.status_code in [503, 408, 500, 502, 504]:
+                 print(f"    > AI summary failed with server error {response.status_code}. Retrying...")
+                 time.sleep(RETRY_CONFIG["initial_delay"] * (2 ** attempt))
+                 continue # Go to the next attempt
             else:
-                print(f"    > AI summary generation failed. API response: {result}")
+                print(f"    > AI summary generation failed with status {response.status_code}: {response.text}")
+                return None # Don't retry on other client errors (like 400, 403)
+        
+        except requests.exceptions.RequestException as e:
+            print(f"    > An error occurred during AI summarization: {e}")
+            if attempt < RETRY_CONFIG["max_retries"] - 1:
+                 time.sleep(RETRY_CONFIG["initial_delay"] * (2 ** attempt))
+            else:
+                print("    > All AI summary attempts failed.")
                 return None
-        else:
-            print(f"    > AI summary generation failed with status {response.status_code}: {response.text}")
-            return None
-    except Exception as e:
-        print(f"    > An error occurred during AI summarization: {e}")
-        return None
+    return None
+
 
 def scrape_article_details(url):
     """Scrapes an article URL using curl_cffi to bypass anti-scraping."""
@@ -240,13 +263,11 @@ def scrape_with_selenium(url):
 
     driver = None
     try:
-        # Selenium Manager will automatically handle the driver download and setup
         driver = webdriver.Chrome(options=chrome_options)
+        driver.set_page_load_timeout(30) # Increased timeout
         driver.get(url)
-        # Wait a few seconds for dynamic content to load
         time.sleep(5)
         
-        # Use newspaper3k to parse the page source from Selenium
         article = Article(url)
         article.set_html(driver.page_source)
         article.parse()
@@ -273,10 +294,8 @@ def process_article(source_name, title, url, description, default_date, is_retry
     print(f"\nProcessing article from '{source_name}': {title}")
     
     if is_retry:
-        # Use the most powerful scraping method for retries
         article_text, publish_date = scrape_with_selenium(url)
     else:
-        # Use the faster curl_cffi method for the initial run
         article_text, publish_date = scrape_article_details(url)
 
     summary = summarize_with_gemini(article_text)
@@ -460,8 +479,8 @@ def main():
             process_rss_feed(name, url)
     else:
         print("\nUsage:")
-        print("  Normal Run: python google_alert_scraper_api.py \"<keyword1>\" \"<keyword2>\" ...")
-        print("  Retry Run:  python google_alert_scraper_api.py --retry-fallbacks")
+        print("  Normal Run: ./google_alert_scraper_api.py \"<keyword1>\" \"<keyword2>\" ...")
+        print("  Retry Run:  ./google_alert_scraper_api.py --retry-fallbacks")
         sys.exit(1)
 
     generate_report()
