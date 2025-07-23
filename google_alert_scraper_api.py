@@ -203,7 +203,7 @@ def summarize_with_gemini(text):
             payload = {"contents": chat_history}
             api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
             
-            response = requests.post(api_url, json=payload, timeout=30) # Increased timeout
+            response = requests.post(api_url, json=payload, timeout=30)
             
             if response.status_code == 200:
                 result = response.json()
@@ -211,17 +211,15 @@ def summarize_with_gemini(text):
                     return result['candidates'][0]['content']['parts'][0]['text'].strip()
                 else:
                     print(f"    > AI summary generation failed. API response: {result}")
-                    # Don't retry on a valid response that has no summary (e.g. safety block)
                     return None
             
-            # If the error is a server overload (503) or timeout, we should retry
             elif response.status_code in [503, 408, 500, 502, 504]:
                  print(f"    > AI summary failed with server error {response.status_code}. Retrying...")
                  time.sleep(RETRY_CONFIG["initial_delay"] * (2 ** attempt))
-                 continue # Go to the next attempt
+                 continue
             else:
                 print(f"    > AI summary generation failed with status {response.status_code}: {response.text}")
-                return None # Don't retry on other client errors (like 400, 403)
+                return None
         
         except requests.exceptions.RequestException as e:
             print(f"    > An error occurred during AI summarization: {e}")
@@ -264,7 +262,7 @@ def scrape_with_selenium(url):
     driver = None
     try:
         driver = webdriver.Chrome(options=chrome_options)
-        driver.set_page_load_timeout(30) # Increased timeout
+        driver.set_page_load_timeout(30)
         driver.get(url)
         time.sleep(5)
         
@@ -289,7 +287,7 @@ def process_article(source_name, title, url, description, default_date, is_retry
     """Shared logic to process a single article from any source."""
     if not is_retry and is_url_in_db(url):
         print(f"  > Skipping duplicate article: {url}")
-        return
+        return 'skipped'
 
     print(f"\nProcessing article from '{source_name}': {title}")
     
@@ -321,6 +319,8 @@ def process_article(source_name, title, url, description, default_date, is_retry
         update_post_in_db(url, post_content, summary_type)
     else:
         add_post_to_db(source_name, post_content, url, summary_type)
+    
+    return summary_type
 
 def parse_google_alert(keyword, email_bytes):
     """Parses a Google Alert email and processes its articles."""
@@ -387,7 +387,10 @@ def retry_fallback_summaries():
         print("  > No articles with fallback summaries found to re-process.")
         return
 
-    print(f"  > Found {len(fallbacks)} articles to re-process.")
+    total_to_retry = len(fallbacks)
+    successful_heals = 0
+    print(f"  > Found {total_to_retry} articles to re-process.")
+    
     for url, source_name, post_content in fallbacks:
         lines = post_content.split('\n')
         date_str = lines[0]
@@ -396,7 +399,15 @@ def retry_fallback_summaries():
         description = ' '.join(summary_line.split(' - ')[1:])
         default_date = datetime.strptime(date_str, "%A, %B %d, %Y")
 
-        process_article(source_name, title, url, description, default_date, is_retry=True)
+        result = process_article(source_name, title, url, description, default_date, is_retry=True)
+        if result == 'ai':
+            successful_heals += 1
+    
+    print("\n--- Re-Processing Summary ---")
+    print(f"  Articles Attempted: {total_to_retry}")
+    print(f"  Successfully Healed: {successful_heals}")
+    print(f"  Failed to Heal:     {total_to_retry - successful_heals}")
+    print("-----------------------------")
 
 
 # --- Helper functions ---
