@@ -52,9 +52,6 @@ RSS_FEEDS = {
 }
 
 # --- SLACK CONFIGURATION ---
-# 1. Follow the guide to get your Slack Bot Token and Channel ID.
-# 2. Paste them here.
-# 3. Set 'enabled' to True.
 SLACK_CONFIG = {
     "enabled": False,
     "bot_token": "xoxb-YOUR-SLACK-BOT-TOKEN-HERE",
