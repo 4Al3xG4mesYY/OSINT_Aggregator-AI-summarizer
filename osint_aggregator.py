@@ -1,19 +1,19 @@
 #!/usr/bin/env python
-# google_alert_scraper_api.py (Final Version)
+# osint_aggregator.py (Project Synapse)
 
-# This script is a multi-source OSINT aggregator with an advanced scraping engine,
-# a data re-processing workflow, and AI-powered categorization. It fetches
-# intelligence, scrapes content, generates AI summaries & topics, and stores
-# results in a database. It also integrates with Slack to avoid duplicating
-# work already covered by a human team.
+# This script is a multi-source OSINT aggregator with an advanced scraping engine
+# and a data re-processing workflow. It fetches intelligence, scrapes content,
+# generates AI summaries, and stores results in a database. It also integrates
+# with Slack to avoid duplicating work already covered by a human team.
 #
 # Dependencies:
 # python -m pip install -r requirements.txt
 #
 # How to Use:
-# 1. Make the script executable: chmod +x google_alert_scraper_api.py
-# 2. Normal Run: ./google_alert_scraper_api.py "Ransomware" "Malware"
-# 3. Retry Run: ./google_alert_scraper_api.py --retry-fallbacks
+# 1. Make the script executable: chmod +x osint_aggregator.py
+# 2. Normal Run: ./osint_aggregator.py "Ransomware" "Malware"
+# 3. Full Retry Run: ./osint_aggregator.py --retry-fallbacks
+# 4. Targeted Retry Run: ./osint_aggregator.py --retry-fallbacks "RSS: The Hacker News"
 
 import base64
 import email
@@ -50,6 +50,11 @@ RSS_FEEDS = {
     "Bleeping Computer": "https://www.bleepingcomputer.com/feed/",
     "Krebs on Security": "https://krebsonsecurity.com/feed/",
     "Dark Reading": "https://www.darkreading.com/rss_simple.asp",
+    "Wired - Security": "https://www.wired.com/feed/category/security/latest/rss",
+    "CSO Online": "https://www.csoonline.com/feed/",
+    "SecurityWeek": "http://feeds.feedburner.com/Securityweek",
+    "CISA Alerts": "https://www.cisa.gov/news-events/alerts/rss",
+    "Malwarebytes Labs": "https://www.malwarebytes.com/blog/feed"
 }
 
 SLACK_CONFIG = {
@@ -65,7 +70,7 @@ RETRY_CONFIG = {"max_retries": 3, "initial_delay": 5}
 
 def setup_database():
     """Creates/updates the database and table if they don't exist."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS articles (
@@ -74,7 +79,7 @@ def setup_database():
             source_name TEXT NOT NULL,
             post_content TEXT NOT NULL,
             source_indicator TEXT NOT NULL,
-            main_topic TEXT, -- New column for category
+            main_topic TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -88,7 +93,7 @@ def setup_database():
     conn.close()
 
 def is_url_in_db(url):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM articles WHERE url = ?", (url,))
     result = cursor.fetchone()
@@ -96,7 +101,7 @@ def is_url_in_db(url):
     return result is not None
 
 def add_post_to_db(source_name, post_content, url, source_indicator, main_topic):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     cursor = conn.cursor()
     try:
         cursor.execute(
@@ -110,7 +115,7 @@ def add_post_to_db(source_name, post_content, url, source_indicator, main_topic)
         conn.close()
 
 def update_post_in_db(url, new_post_content, new_source_indicator, new_main_topic):
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     cursor = conn.cursor()
     cursor.execute(
         "UPDATE articles SET post_content = ?, source_indicator = ?, main_topic = ? WHERE url = ?",
@@ -175,7 +180,7 @@ def summarize_and_categorize_with_gemini(text):
     if not text or len(text.strip()) < 50:
         print("    > Article text too short, skipping AI analysis.")
         return None, None
-    api_key = "YOUR_GEMINI_API_KEY_HERE"
+    api_key = "YOUR_GEMINI_API_KEY_HERE" # Replace with your key
     if "YOUR_GEMINI_API_KEY_HERE" in api_key:
         print("\nERROR: Gemini API key not found.")
         return None, None
@@ -267,7 +272,6 @@ def process_article(source_name, title, url, description, default_date, slack_ca
         post_content = (
             f"CATEGORY: Human Verified\n"
             f"Published: {slack_date.strftime('%A, %B %d, %Y')}\n"
-            f"Added: {datetime.now().strftime('%A, %B %d, %Y')}\n"
             f"{slack_summary} [VERIFIED BY SLACK]{''.join(emojis)}\n"
             f"{' '.join(hashtags)}\n"
             f"{url}\n"
@@ -299,7 +303,6 @@ def process_article(source_name, title, url, description, default_date, slack_ca
     post_content = (
         f"CATEGORY: {category}\n"
         f"Published: {display_date.strftime('%A, %B %d, %Y')}\n"
-        f"Added: {datetime.now().strftime('%A, %B %d, %Y')}\n"
         f"{summary}{''.join(emojis)}\n"
         f"{' '.join(hashtags)}\n"
         f"{url}\n"
@@ -324,8 +327,12 @@ def parse_google_alert(keyword, email_bytes, slack_cache):
                 html_payload = part.get_payload(decode=True).decode(part.get_content_charset(), 'ignore')
                 break
     if not html_payload: return
+    
     soup = BeautifulSoup(html_payload, 'lxml')
     json_script_tag = soup.find('script', {'data-scope': 'inboxmarkup'})
+    
+    stats = {'added': 0, 'skipped': 0, 'failed': 0}
+    
     if json_script_tag:
         try:
             widgets = json.loads(json_script_tag.string).get('cards', [{}])[0].get('widgets', [])
@@ -334,12 +341,23 @@ def parse_google_alert(keyword, email_bytes, slack_cache):
                     title = item.get('title', 'No Title')
                     actual_url = get_actual_url(item.get('url', '#'))
                     description = item.get('description', 'No Snippet')
-                    process_article(source_name, title, actual_url, description, email_date, slack_cache)
+                    result = process_article(source_name, title, actual_url, description, email_date, slack_cache)
+                    if result in ['ai', 'slack']: stats['added'] += 1
+                    elif result == 'skipped': stats['skipped'] += 1
+                    else: stats['failed'] += 1
         except Exception as e:
             print(f"  > Could not process JSON data from Google Alert '{keyword}'. Error: {e}")
+    
+    print(f"--- Summary for '{source_name}' ---")
+    print(f"  New Articles Added: {stats['added']}")
+    print(f"  Duplicates Skipped: {stats['skipped']}")
+    print(f"  Processing Failed:  {stats['failed']}")
+    print("-----------------------------------")
+
 
 def process_rss_feed(name, url, slack_cache):
     print(f"\n-> Fetching RSS Feed: {name}")
+    stats = {'added': 0, 'skipped': 0, 'failed': 0}
     try:
         feed = feedparser.parse(url)
         for entry in feed.entries[:5]:
@@ -347,33 +365,54 @@ def process_rss_feed(name, url, slack_cache):
             link = entry.link
             publish_date = email.utils.parsedate_to_datetime(entry.published) if 'published' in entry else datetime.now()
             description = BeautifulSoup(entry.summary, 'lxml').get_text(strip=True, separator=' ')[:200]
-            process_article(f"RSS: {name}", title, link, description, publish_date, slack_cache)
+            result = process_article(f"RSS: {name}", title, link, description, publish_date, slack_cache)
+            if result in ['ai', 'slack']: stats['added'] += 1
+            elif result == 'skipped': stats['skipped'] += 1
+            else: stats['failed'] += 1
+            
     except Exception as e:
         print(f"  > An error occurred while processing RSS feed {name}: {e}")
+    
+    print(f"--- Summary for 'RSS: {name}' ---")
+    print(f"  New Articles Added: {stats['added']}")
+    print(f"  Duplicates Skipped: {stats['skipped']}")
+    print(f"  Processing Failed:  {stats['failed']}")
+    print("-----------------------------------")
 
-def retry_fallback_summaries(slack_cache):
+def retry_fallback_summaries(slack_cache, source_to_retry=None):
     print("\n--- Starting Re-Processing Mode for Fallback Summaries ---")
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     cursor = conn.cursor()
-    cursor.execute("SELECT url, source_name, post_content FROM articles WHERE source_indicator = 'fallback'")
+    
+    query = "SELECT url, source_name, post_content FROM articles WHERE source_indicator = 'fallback'"
+    params = []
+    if source_to_retry:
+        query += " AND source_name = ?"
+        params.append(source_to_retry)
+        print(f"  > Targeting source: {source_to_retry}")
+
+    cursor.execute(query, params)
     fallbacks = cursor.fetchall()
     conn.close()
+
     if not fallbacks:
         print("  > No articles with fallback summaries found to re-process.")
         return
+        
     total_to_retry = len(fallbacks)
     successful_heals = 0
     print(f"  > Found {total_to_retry} articles to re-process.")
+    
     for url, source_name, post_content in fallbacks:
         lines = post_content.split('\n')
-        # Adjust for new date lines
-        date_str, summary_line = lines[1], lines[3] 
+        date_str, summary_line = lines[1], lines[2] 
         title = summary_line.split(' - ')[0]
         description = ' '.join(summary_line.split(' - ')[1:])
         default_date = datetime.strptime(date_str.replace("Published: ", ""), "%A, %B %d, %Y")
         result = process_article(source_name, title, url, description, default_date, slack_cache, is_retry=True)
         if result == 'ai':
             successful_heals += 1
+            
     print("\n--- Re-Processing Summary ---")
     print(f"  Articles Attempted: {total_to_retry}")
     print(f"  Successfully Healed: {successful_heals}")
@@ -440,7 +479,7 @@ def create_summary(title, snippet):
 
 def generate_report():
     print("\n-> Generating final report from database...")
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     cursor = conn.cursor()
     cursor.execute("SELECT source_name, post_content FROM articles ORDER BY source_name, id DESC")
     all_posts = cursor.fetchall()
@@ -468,22 +507,27 @@ def main():
     if SLACK_CONFIG["enabled"]:
         slack_cache = fetch_slack_articles(SLACK_CONFIG["bot_token"], SLACK_CONFIG["channel_id"])
 
-    if len(sys.argv) > 1 and sys.argv[1] == '--retry-fallbacks':
-        retry_fallback_summaries(slack_cache)
-    elif len(sys.argv) > 1:
-        alert_keywords = sys.argv[1:]
-        service = get_gmail_service()
-        if service:
-            for keyword in alert_keywords:
-                email_bytes = get_latest_google_alert(service, keyword)
-                if email_bytes:
-                    parse_google_alert(keyword, email_bytes, slack_cache)
-        for name, url in RSS_FEEDS.items():
-            process_rss_feed(name, url, slack_cache)
+    # --- New Argument Parsing Logic ---
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '--retry-fallbacks':
+            source_to_retry = sys.argv[2] if len(sys.argv) > 2 else None
+            retry_fallback_summaries(slack_cache, source_to_retry)
+        else:
+            # This is a normal run
+            alert_keywords = sys.argv[1:]
+            service = get_gmail_service()
+            if service:
+                for keyword in alert_keywords:
+                    email_bytes = get_latest_google_alert(service, keyword)
+                    if email_bytes:
+                        parse_google_alert(keyword, email_bytes, slack_cache)
+            for name, url in RSS_FEEDS.items():
+                process_rss_feed(name, url, slack_cache)
     else:
         print("\nUsage:")
-        print("  Normal Run: ./google_alert_scraper_api.py \"<keyword1>\" ...")
-        print("  Retry Run:  ./google_alert_scraper_api.py --retry-fallbacks")
+        print("  Normal Run: ./osint_aggregator.py \"<keyword1>\" ...")
+        print("  Retry Run (all):  ./osint_aggregator.py --retry-fallbacks")
+        print("  Retry Run (targeted): ./osint_aggregator.py --retry-fallbacks \"<source_name>\"")
         sys.exit(1)
 
     generate_report()
