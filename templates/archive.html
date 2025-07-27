@@ -1,7 +1,3 @@
-# --- templates/archive.html ---
-# This is the NEW page for the Full Archive.
-# Inside the 'templates' folder, create a NEW file named 'archive.html' and paste this code.
-"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17,6 +13,15 @@
         .header p { font-size: 1.2rem; color: #39FF14; }
         .nav-link { display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; border: 1px solid #30363d; border-radius: 6px; color: #58a6ff; text-decoration: none; font-weight: 700; transition: all 0.2s ease-in-out; }
         .nav-link:hover { background-color: #30363d; color: #fff; }
+        
+        .search-bar { margin-bottom: 2rem; }
+        .search-bar input { width: 100%; padding: 0.75rem; background-color: #161B22; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-family: 'Roboto Mono', monospace; font-size: 1rem; box-sizing: border-box; }
+        
+        .pagination { display: flex; justify-content: center; align-items: center; margin: 2rem 0; }
+        .pagination a, .pagination span { color: #58a6ff; text-decoration: none; padding: 0.5rem 1rem; margin: 0 0.25rem; border: 1px solid #30363d; border-radius: 6px; }
+        .pagination a:hover { background-color: #30363d; color: #fff; }
+        .pagination .current { background-color: #58a6ff; color: #0D1117; border-color: #58a6ff; font-weight: 700; }
+        
         .article-card { background-color: #161B22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; text-align: left; }
         .article-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 1rem; margin-bottom: 1rem; }
         .article-source { font-weight: 700; color: #00FFFF; }
@@ -36,6 +41,12 @@
             <a href="/" class="nav-link">&larr; Back to Daily Briefing</a>
         </div>
 
+        <div class="search-bar">
+            <form method="get" action="/archive">
+                <input type="text" name="search" placeholder="Search articles..." value="{{ search_query }}">
+            </form>
+        </div>
+
         {% for article in articles %}
         <div class="article-card">
             <div class="article-header">
@@ -52,6 +63,18 @@
             </div>
         </div>
         {% endfor %}
+
+        <div class="pagination">
+            {% if page > 1 %}
+                <a href="/archive?page={{ page - 1 }}&search={{ search_query }}">&laquo; Prev</a>
+            {% endif %}
+            
+            <span class="current">Page {{ page }} of {{ total_pages }}</span>
+
+            {% if page < total_pages %}
+                <a href="/archive?page={{ page + 1 }}&search={{ search_query }}">Next &raquo;</a>
+            {% endif %}
+        </div>
 
     </div>
 </body>
