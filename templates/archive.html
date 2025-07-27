@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project Synapse - Full Archive</title>
+    <title>Project Synapse - Daily Briefing</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body { background-color: #0D1117; color: #c9d1d9; font-family: 'Roboto Mono', monospace; margin: 0; line-height: 1.6; }
@@ -13,69 +13,55 @@
         .header p { font-size: 1.2rem; color: #39FF14; }
         .nav-link { display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; border: 1px solid #30363d; border-radius: 6px; color: #58a6ff; text-decoration: none; font-weight: 700; transition: all 0.2s ease-in-out; }
         .nav-link:hover { background-color: #30363d; color: #fff; }
-        
-        .search-bar { margin-bottom: 2rem; }
-        .search-bar input { width: 100%; padding: 0.75rem; background-color: #161B22; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-family: 'Roboto Mono', monospace; font-size: 1rem; box-sizing: border-box; }
-        
-        .pagination { display: flex; justify-content: center; align-items: center; margin: 2rem 0; }
-        .pagination a, .pagination span { color: #58a6ff; text-decoration: none; padding: 0.5rem 1rem; margin: 0 0.25rem; border: 1px solid #30363d; border-radius: 6px; }
-        .pagination a:hover { background-color: #30363d; color: #fff; }
-        .pagination .current { background-color: #58a6ff; color: #0D1117; border-color: #58a6ff; font-weight: 700; }
-        
+        .category-group h2 { font-size: 1.8rem; color: #39FF14; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; margin-top: 3rem; }
         .article-card { background-color: #161B22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; text-align: left; }
-        .article-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 1rem; margin-bottom: 1rem; }
-        .article-source { font-weight: 700; color: #00FFFF; }
+        .article-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid #30363d;}
+        .article-source { font-weight: 700; color: #00FFFF; font-size: 1.1rem; }
         .article-indicator { font-size: 0.8rem; padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 700; text-transform: uppercase; }
         .indicator-ai { background-color: #238636; color: #fff; }
         .indicator-fallback { background-color: #9e6a03; color: #fff; }
         .indicator-slack { background-color: #58a6ff; color: #fff; }
         .article-content p { margin: 0.5rem 0; }
         .article-content a { color: #58a6ff; text-decoration: none; word-break: break-all; }
+        .empty-state { text-align: center; color: #8b949e; margin-top: 4rem; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>Project Synapse</h1>
-            <p>Full Intelligence Archive</p>
-            <a href="/" class="nav-link">&larr; Back to Daily Briefing</a>
+            <p>Daily Briefing (Last 24 Hours)</p>
+            <a href="/archive" class="nav-link">View Full Archive &rarr;</a>
         </div>
 
-        <div class="search-bar">
-            <form method="get" action="/archive">
-                <input type="text" name="search" placeholder="Search articles..." value="{{ search_query }}">
-            </form>
-        </div>
-
-        {% for article in articles %}
-        <div class="article-card">
-            <div class="article-header">
-                <span class="article-source">{{ article['source_name'] }}</span>
-                <span class="article-indicator indicator-{{ article['source_indicator'] }}">{{ article['source_indicator'] }}</span>
+        {% if articles_by_category %}
+            {% for category, articles in articles_by_category.items() %}
+            <div class="category-group">
+                <h2>{{ category }}</h2>
+                {% for article in articles %}
+                <div class="article-card">
+                    <div class="article-header">
+                        <span class="article-source">{{ article['source_name'] }}</span>
+                        <span class="article-indicator indicator-{{ article['source_indicator'] }}">{{ article['source_indicator'] }}</span>
+                    </div>
+                    <div class="article-content">
+                        {% set lines = article['post_content'].split('\n') %}
+                        <p><em>{{ lines[1] }}</em></p> <!-- Published Date -->
+                        <p><em>{{ lines[2] }}</em></p> <!-- Added Date -->
+			<p>{{ lines[3] }}</p> <!-- Summary -->
+                        <p><a href="{{ lines[5] }}" target="_blank" rel="noopener noreferrer">{{ lines[5] }}</a></p> <!-- URL -->
+                        <p>{{ lines[4] }}</p> <!-- Hashtags -->
+                    </div>
+                </div>
+                {% endfor %}
             </div>
-            <div class="article-content">
-                {% set lines = article['post_content'].split('\n') %}
-                <p><strong>{{ lines[0] }}</strong></p> <!-- Category -->
-                <p><em>{{ lines[1] }}</em></p> <!-- Published Date -->
-                <p>{{ lines[2] }}</p> <!-- Summary -->
-                <p>{{ lines[3] }}</p> <!-- Hashtags -->
-                <p><a href="{{ lines[4] }}" target="_blank" rel="noopener noreferrer">{{ lines[4] }}</a></p> <!-- URL -->
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">
+                <p>No new articles found in the last 24 hours.</p>
+                <p>Run the `osint_aggregator.py` script to collect new intelligence.</p>
             </div>
-        </div>
-        {% endfor %}
-
-        <div class="pagination">
-            {% if page > 1 %}
-                <a href="/archive?page={{ page - 1 }}&search={{ search_query }}">&laquo; Prev</a>
-            {% endif %}
-            
-            <span class="current">Page {{ page }} of {{ total_pages }}</span>
-
-            {% if page < total_pages %}
-                <a href="/archive?page={{ page + 1 }}&search={{ search_query }}">Next &raquo;</a>
-            {% endif %}
-        </div>
-
+        {% endif %}
     </div>
 </body>
 </html>
