@@ -1,7 +1,3 @@
-# --- templates/index.html ---
-# This is the NEW main page for the "Daily Briefing".
-# Create a folder named 'templates', create 'index.html' inside it, and paste this code.
-"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,8 +15,8 @@
         .nav-link:hover { background-color: #30363d; color: #fff; }
         .category-group h2 { font-size: 1.8rem; color: #39FF14; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; margin-top: 3rem; }
         .article-card { background-color: #161B22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; text-align: left; }
-        .article-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 1rem; margin-bottom: 1rem; }
-        .article-source { font-weight: 700; color: #00FFFF; }
+        .article-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid #30363d;}
+        .article-source { font-weight: 700; color: #00FFFF; font-size: 1.1rem; }
         .article-indicator { font-size: 0.8rem; padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 700; text-transform: uppercase; }
         .indicator-ai { background-color: #238636; color: #fff; }
         .indicator-fallback { background-color: #9e6a03; color: #fff; }
@@ -51,9 +47,10 @@
                     <div class="article-content">
                         {% set lines = article['post_content'].split('\n') %}
                         <p><em>{{ lines[1] }}</em></p> <!-- Published Date -->
-                        <p>{{ lines[2] }}</p> <!-- Summary -->
-                        <p>{{ lines[3] }}</p> <!-- Hashtags -->
-                        <p><a href="{{ lines[4] }}" target="_blank" rel="noopener noreferrer">{{ lines[4] }}</a></p> <!-- URL -->
+                        <p><em>{{ lines[2] }}</em></p> <!-- Added Date -->
+			<p>{{ lines[3] }}</p> <!-- Summary -->
+                        <p><a href="{{ lines[5] }}" target="_blank" rel="noopener noreferrer">{{ lines[5] }}</a></p> <!-- URL -->
+                        <p>{{ lines[4] }}</p> <!-- Hashtags -->
                     </div>
                 </div>
                 {% endfor %}
@@ -68,4 +65,3 @@
     </div>
 </body>
 </html>
-"""
