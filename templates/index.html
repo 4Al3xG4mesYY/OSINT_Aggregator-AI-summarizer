@@ -1,0 +1,58 @@
+# --- templates/archive.html ---
+# This is the NEW page for the Full Archive.
+# Inside the 'templates' folder, create a NEW file named 'archive.html' and paste this code.
+"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Synapse - Full Archive</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #0D1117; color: #c9d1d9; font-family: 'Roboto Mono', monospace; margin: 0; line-height: 1.6; }
+        .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+        .header { text-align: center; border-bottom: 1px solid #30363d; padding-bottom: 2rem; margin-bottom: 2rem; }
+        .header h1 { font-size: 2.5rem; color: #00FFFF; text-shadow: 0 0 8px rgba(0, 255, 255, 0.7); margin: 0; }
+        .header p { font-size: 1.2rem; color: #39FF14; }
+        .nav-link { display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem; border: 1px solid #30363d; border-radius: 6px; color: #58a6ff; text-decoration: none; font-weight: 700; transition: all 0.2s ease-in-out; }
+        .nav-link:hover { background-color: #30363d; color: #fff; }
+        .article-card { background-color: #161B22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; text-align: left; }
+        .article-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 1rem; margin-bottom: 1rem; }
+        .article-source { font-weight: 700; color: #00FFFF; }
+        .article-indicator { font-size: 0.8rem; padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 700; text-transform: uppercase; }
+        .indicator-ai { background-color: #238636; color: #fff; }
+        .indicator-fallback { background-color: #9e6a03; color: #fff; }
+        .indicator-slack { background-color: #58a6ff; color: #fff; }
+        .article-content p { margin: 0.5rem 0; }
+        .article-content a { color: #58a6ff; text-decoration: none; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Project Synapse</h1>
+            <p>Full Intelligence Archive</p>
+            <a href="/" class="nav-link">&larr; Back to Daily Briefing</a>
+        </div>
+
+        {% for article in articles %}
+        <div class="article-card">
+            <div class="article-header">
+                <span class="article-source">{{ article['source_name'] }}</span>
+                <span class="article-indicator indicator-{{ article['source_indicator'] }}">{{ article['source_indicator'] }}</span>
+            </div>
+            <div class="article-content">
+                {% set lines = article['post_content'].split('\n') %}
+                <p><strong>{{ lines[0] }}</strong></p> <!-- Category -->
+                <p><em>{{ lines[1] }}</em></p> <!-- Published Date -->
+                <p>{{ lines[2] }}</p> <!-- Summary -->
+                <p>{{ lines[3] }}</p> <!-- Hashtags -->
+                <p><a href="{{ lines[4] }}" target="_blank" rel="noopener noreferrer">{{ lines[4] }}</a></p> <!-- URL -->
+            </div>
+        </div>
+        {% endfor %}
+
+    </div>
+</body>
+</html>
