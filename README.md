@@ -72,6 +72,20 @@ chmod +x osint_aggregator.py
 
 ---
 
+## Challenges & Lessons Learned
+
+This project involved overcoming several real-world development challenges, providing valuable lessons in building resilient applications.
+
+* **Python Environment Management:** The project initially faced numerous `ModuleNotFoundError` issues. This was resolved by mastering the use of Python virtual environments (`venv`) to create an isolated and reproducible setup, ensuring that the correct interpreter and dependencies were always used.
+
+* **API Rate Limiting:** Early tests with the Gemini API resulted in `429: RESOURCE_EXHAUSTED` errors. The solution was to implement a `time.sleep()` delay between API calls, which taught the importance of reading API documentation and writing "polite" code that respects service usage limits.
+
+* **Anti-Scraping Measures:** Many target websites returned `403 Forbidden` errors, blocking the scraper. This led to the development of a more robust scraping function that uses a list of rotating `User-Agent` strings and an exponential backoff retry mechanism to mimic human behavior and handle temporary blocks.
+
+* **Data Integrity & Concurrency:** The initial asynchronous version of the script caused `database is locked` errors. The solution was to refactor the code to be sequential and to use a local SQLite database, which solved the critical issue of data duplication and ensured data integrity.
+
+---
+
 ## Project Evolution Timeline
 
 This timeline documents the journey of Project Synapse, showing its evolution from a basic, single-purpose script into a resilient, multi-source intelligence platform with a collaborative, "human-in-the-loop" workflow.
@@ -97,7 +111,7 @@ This timeline documents the journey of Project Synapse, showing its evolution fr
 * **Technologies Added:** `sqlite3`, `feedparser`, `curl_cffi`
 * **Limitations:** Still failed on JavaScript-heavy websites and had no awareness of a human team's workflow.
 
-### Phase 4: The Collaborative Platform (The "Human-in-the-Loop" Tool)
+### Phase 4: The Collaborative Platform (The "Human-in-the-Loop" Tool) <-- We are here
 
 * **Goal:** Handle the most difficult websites and integrate with a real-world team workflow.
 * **Features Added:** A "Data Healing" mode using **Selenium** to re-process failed scrapes, and **Slack Integration** to de-conflict with manual analysis.
