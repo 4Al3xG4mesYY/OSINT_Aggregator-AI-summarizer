@@ -1,0 +1,17 @@
+# Python virtual environment
+venv/
+
+# Local database file
+osint_database.db
+
+# Secret credential and token files
+# IMPORTANT: These files should NEVER be committed to GitHub
+credentials.json
+token.json
+
+# Log files
+*.log
+
+# Python cache files
+__pycache__/
+*.pyc
