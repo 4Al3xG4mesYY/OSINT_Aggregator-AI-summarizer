@@ -122,3 +122,10 @@ This timeline documents the journey of Project Synapse, showing its evolution fr
 
 * **Goal:** Transform the data from a simple list into a network of interconnected intelligence.
 * **Features Added:** Re-architected the SQLite database to use a **graph data model** (with `articles`, `entities`, and `relationships` tables). Upgraded the AI prompt to perform **Named Entity Recognition (NER)**, automatically extracting threat actors, malware, and vulnerabilities to build the intelligence graph.
+
+### 🛠️ Next Steps & Future Upgrades
+The project is now a powerful threat intelligence platform. The next steps are focused on professionalizing its deployment and enhancing the user's ability to analyze the collected data.
+* **Secrets Management (High Priority):** Move all API keys (Gemini, Slack) and tokens out of the Python script and into a secure .env file. This is a critical security best practice to prevent accidentally exposing secrets on GitHub.
+* **Full Automation with Cron:** Implement a cron job to run the script on a set schedule (e.g., daily) for a true, unattended intelligence feed.
+* **Interactive Graph Visualization:** The current database contains a rich graph of intelligence. The next major step would be to use a library like pyvis or Dash Cytoscape to create a new page on the Flask dashboard that visually represents the connections between threat actors, malware, and articles, allowing for interactive analysis.
+* **Slack Bot Integration (Major Upgrade):** Re-architect the script into a web application using a framework like Flask or FastAPI. This is necessary to create a Request URL and enable the interactive slash commands (/osint-collect, /osint-report) for your team.
