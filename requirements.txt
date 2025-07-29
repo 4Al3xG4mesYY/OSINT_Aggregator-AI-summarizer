@@ -1,6 +1,3 @@
-This file lists the Python dependencies for the OSINT Aggregator project.
-To install all of them, run the following command in your activated virtual environment:
-pip install -r requirements.txt
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
@@ -14,3 +11,4 @@ feedparser
 curl_cffi
 selenium
 slack_sdk
+Flask
