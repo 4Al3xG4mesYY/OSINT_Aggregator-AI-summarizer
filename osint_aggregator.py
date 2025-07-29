@@ -29,6 +29,7 @@ import sqlite3
 
 import requests
 import feedparser
+import re
 import nltk
 from bs4 import BeautifulSoup
 from google.auth.transport.requests import Request
