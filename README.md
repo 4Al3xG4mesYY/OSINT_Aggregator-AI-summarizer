@@ -1,25 +1,30 @@
 # Project Synapse: An Automated Threat Intelligence Pipeline
+**An advanced OSINT tool that automatically collects and analyzes cybersecurity articles, building an interactive graph of interconnected threats, malware, and vulnerabilities.**
 
 ## Overview
-Project Synapse is a sophisticated, Python-based Open-Source Intelligence (OSINT) tool designed to automate the collection, processing, and reporting of cybersecurity news. It aggregates articles from multiple sources, including Google Alerts and RSS feeds, scrapes the full content of each article, and utilizes the Gemini AI API to generate concise summaries and extract key entities. The results are stored in a local SQLite database with a graph-like structure, preventing duplicates and allowing for relational analysis.
+Project Synapse is a sophisticated, Python-based Open-Source Intelligence (OSINT) tool designed to automate the collection, processing, and analysis of cybersecurity intelligence. It aggregates articles from Google Alerts and RSS feeds, scrapes the full content, and utilizes the Gemini AI API to generate concise summaries, assess severity, and perform Named Entity Recognition (NER).
 
-A key feature is the "human-in-the-loop" integration with Slack, which allows the tool to de-conflict its automated collection with the work of a human analysis team, ensuring efficiency and preventing duplicate efforts.
+All processed data is stored in a local SQLite database with a graph-like structure, allowing for powerful relational analysis. The project includes separate modules for generating professional HTML reports and interactive graph visualizations, transforming raw news into a network of interconnected intelligence.
 
 ## Features
-* **Multi-Source Collection:** Gathers intelligence from both Google Alerts (via the Gmail API) and a configurable list of RSS feeds.
-* **Advanced Scraping Engine:**
-    * **Browser Impersonation:** Uses `curl_cffi` to mimic a browser's TLS fingerprint, bypassing advanced anti-bot services like Cloudflare.
-    * **Dynamic Content Handling:** Employs Selenium to control a headless Chrome browser, enabling the scraping of JavaScript-heavy websites.
-* **AI-Powered Summarization & NER:** Leverages the Gemini API (`gemini-1.5-flash-latest`) to generate unique, two-sentence summaries and perform Named Entity Recognition (NER), automatically extracting threat actors, malware, and vulnerabilities.
-* **Graph-Based Data Persistence:** Stores all processed articles, entities, and their relationships in an SQLite database, preventing duplication and building a network of interconnected intelligence.
-* **"Data Healing" Workflow:** A `--retry-fallbacks` mode uses Selenium to re-process articles that failed during the initial, faster collection run, improving dataset quality over time.
-* **Slack Integration:** Checks a designated Slack channel to see if an article has already been covered by a human analyst, saving their summary and avoiding redundant processing.
-* **Organized Reporting:** Generates a clean `.txt` report with articles grouped by source and clear indicators for AI-generated vs. Slack-verified summaries.
+* **Multi-Source Collection**: Gathers intelligence from both Google Alerts (via the Gmail API) and a configurable list of cybersecurity RSS feeds.
+* **Advanced Scraping Engine**:
+    * **Browser Impersonation**: Uses `curl_cffi` to mimic a browser, bypassing advanced anti-bot services like Cloudflare.
+    * **Dynamic Content Handling**: Employs Selenium to control a headless Chrome browser for scraping JavaScript-heavy websites.
+* **AI-Powered Analysis**: Leverages the Gemini AI API (`gemini-1.5-flash-latest`) for three key tasks:
+    * **Summarization**: Generates unique, two-sentence summaries.
+    * **Severity Assessment**: Assigns a "High," "Medium," or "Low" severity rating to each article.
+    * **Entity Extraction (NER)**: Automatically extracts and links threat actors, malware families, and CVE vulnerabilities.
+* **Graph-Based Intelligence Database**: Stores articles, entities, and their relationships in an SQLite database, building a powerful network of interconnected threat intelligence.
+* **Interactive Graph Visualization**: Includes a `visualize_graph.py` script that uses `pyvis` and `networkx` to generate an interactive HTML graph, allowing for visual analysis of threat relationships.
+* **Automated HTML Reporting**: Comes with a `report_generator.py` script that creates a professional, weekly HTML report with articles grouped by severity.
+* **"Data Healing" Workflow**: A `--retry-fallbacks` mode uses the more robust Selenium engine to re-process articles that failed during the initial, faster collection run, improving dataset quality over time.
+* **Secure Credential Management**: All API keys are securely managed outside of the codebase using a `.env` file.
 
 ## Tech Stack
 * **Programming Language:** Python 3
-* **Key Libraries:** `google-api-python-client`, `requests`, `newspaper3k`, `feedparser`, `curl_cffi`, `selenium`, `slack_sdk`, `sqlite3`
-* **APIs:** Google Gmail API, Google Gemini API, Slack API
+* **Key Libraries:** `google-api-python-client`, `requests`, `newspaper3k`, `feedparser`, `curl_cffi`, `selenium`, `slack_sdk`, `sqlite3`, `selenium`, `tqdm`, `jinja2`, `pyvis`, `networkx`
+* **APIs:** Google Gmail API, Google Gemini API
 
 ## Setup and Installation
 1.  **Clone the repository:**
@@ -52,8 +57,6 @@ Before running, configure your API credentials. For security, store your keys in
 2.  Add your API keys:
     ```
     GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-    SLACK_BOT_TOKEN=YOUR_SLACK_BOT_TOKEN
-    SLACK_CHANNEL_ID=YOUR_SLACK_CHANNEL_ID
     ```
 3.  Obtain your `credentials.json` for Gmail API access from Google Cloud Console, and place it in the root directory.
 
@@ -77,6 +80,16 @@ Before running, configure your API credentials. For security, store your keys in
     ```powershell
     python osint_aggregator.py --retry-fallbacks
     ```
+  
+## Generate Reports
+* **Generate the HTML and JSON reports**
+    ```
+    python report_generator.py
+    ```
+* **Generate the interactive graph visualization**
+    ```
+    python visualize_graph.py
+    ```
 
 ## Real-World Challenges & Lessons Learned
 * **API Rate Limiting:** Early Gemini API calls caused `429: RESOURCE_EXHAUSTED` errors. Solution: added `time.sleep()` delays to respect rate limits.
@@ -96,10 +109,10 @@ Before running, configure your API credentials. For security, store your keys in
     * Re-architected database into a graph model; added NER to build interconnected threat networks.
 
 ## 🛠️ Next Steps & Future Upgrades
-* **Secrets Management:** Migrate all API keys and tokens to a secure `.env` file for better security.
-* **Interactive Graph Visualization:** Use `pyvis` or `Dash Cytoscape` to visualize threat actor and malware relationships within a Flask dashboard.
-* **Full Automation:** Set up Windows Task Scheduler or `cron` jobs for scheduled, unattended runs.
-* **Slack Bot Integration:** Re-architect into a web app (using Flask or FastAPI) to support slash commands (`/osint-collect`, `/osint-report`) for team interaction.
+* **Advanced Graph Queries:** Build new modules to perform complex queries on the graph database, such as identifying the most active threat actors or co-occurring malware families.
+* **Web Dashboard:** Create a web front-end using Flask or FastAPI to display the HTML report and embed the interactive graph visualization.
+* **Full Automation:** Set up cron jobs (Linux/macOS) or Task Scheduler (Windows) for scheduled, unattended runs of the aggregator.
+* **Slack Bot Integration:** Develop the aggregator into a web app to support Slack slash commands (/osint-collect, /osint-report) for team interaction.
 
 ---
 This README provides a comprehensive guide to deploying and evolving Project Synapse into a resilient, automated OSINT platform.
