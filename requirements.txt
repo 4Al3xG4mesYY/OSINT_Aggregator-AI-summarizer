@@ -5,10 +5,12 @@ beautifulsoup4
 lxml
 newspaper3k
 nltk
-lxml_html_clean
 requests
 feedparser
 curl_cffi
 selenium
 slack_sdk
-Flask
+stamina
+python-dotenv
+lxml_html_clean
+pyvis networkx
