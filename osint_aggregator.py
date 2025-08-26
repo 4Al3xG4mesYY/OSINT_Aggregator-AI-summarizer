@@ -57,7 +57,7 @@ processing_stats = {
     'skipped_duplicate': 0,
 }
 
-# --- DATABASE SETUP ---
+# --- DATABASE SETUP (Functions are unchanged) ---
 
 def setup_database():
     """Creates a hybrid database schema compatible with both reporting and visualization."""
@@ -184,7 +184,7 @@ def update_article_in_db(article_data, entities=None):
                         link_article_to_entity(article_id, entity_id)
     conn.close()
 
-# --- NLTK, SCOPES, and other setup functions ---
+# --- NLTK, SCOPES, API, SCRAPING (Functions are unchanged) ---
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -303,7 +303,9 @@ def scrape_with_selenium(url):
         if driver:
             driver.quit()
 
-def process_article(source_name, title, url, description, default_date, is_retry=False):
+# --- UPDATED FUNCTIONS ---
+
+def process_article(source_name, title, url, description, default_date, is_retry=False, verbose=False):
     processing_stats['total_processed'] += 1
 
     if not is_retry and is_url_in_db(url):
@@ -316,14 +318,17 @@ def process_article(source_name, title, url, description, default_date, is_retry
             article_text, publish_date = scrape_with_selenium(url)
         else:
             article_text, publish_date = scrape_article_details(url)
-    except Exception:
+    except Exception as e:
+        if verbose:
+            print(f"  > Scraping failed for {url}: {e}")
         article_text = f"{title} - {description}"
 
     ai_analysis = None
     try:
         ai_analysis = analyze_article_with_gemini(article_text)
-    except Exception:
-        pass
+    except Exception as e:
+        if verbose:
+            print(f"  > AI analysis failed for {url}: {e}")
 
     article_data = {
         "url": url, "title": title, "source_name": source_name,
@@ -356,7 +361,7 @@ def process_article(source_name, title, url, description, default_date, is_retry
     else:
         add_article_to_db(article_data, entities)
 
-def parse_google_alert(keyword, email_bytes):
+def parse_google_alert(keyword, email_bytes, verbose=False):
     if not email_bytes: return
     msg = email.message_from_bytes(email_bytes, policy=policy.default)
     email_date = email.utils.parsedate_to_datetime(msg['Date'])
@@ -377,9 +382,9 @@ def parse_google_alert(keyword, email_bytes):
             title = title_tag.get_text(strip=True)
             actual_url = get_actual_url(link['href'])
             description = snippet_tag.get_text(strip=True)
-            process_article(source_name, title, actual_url, description, email_date)
+            process_article(source_name, title, actual_url, description, email_date, verbose=verbose)
 
-def process_rss_feed(name, url):
+def process_rss_feed(name, url, verbose=False):
     try:
         feed = feedparser.parse(url)
         for entry in tqdm(feed.entries[:10], desc=f"Processing RSS '{name}'", unit="article", leave=False):
@@ -387,11 +392,12 @@ def process_rss_feed(name, url):
             link = entry.link
             publish_date = email.utils.parsedate_to_datetime(entry.published) if 'published' in entry else datetime.now()
             description = BeautifulSoup(entry.summary, 'lxml').get_text(strip=True, separator=' ')[:200]
-            process_article(f"RSS: {name}", title, link, description, publish_date)
+            process_article(f"RSS: {name}", title, link, description, publish_date, verbose=verbose)
     except Exception as e:
-        print(f"  > Error processing RSS feed {name}: {e}")
+        if verbose:
+            print(f"  > Error processing RSS feed {name}: {e}")
 
-def retry_fallback_summaries():
+def retry_fallback_summaries(verbose=False):
     print("\n--- Starting Re-Processing Mode for Fallback Summaries ---")
     conn = sqlite3.connect(DB_FILE, timeout=10)
     cursor = conn.cursor()
@@ -406,7 +412,7 @@ def retry_fallback_summaries():
     for url, source_name, title, summary, publish_date in tqdm(fallbacks, desc="Re-processing fallbacks", unit="article"):
         description = summary.split(' - ')[1] if ' - ' in summary else ''
         default_date = datetime.fromisoformat(publish_date)
-        process_article(source_name, title, url, description, default_date, is_retry=True)
+        process_article(source_name, title, url, description, default_date, is_retry=True, verbose=verbose)
 
 def get_actual_url(google_url):
     try:
@@ -418,28 +424,34 @@ def main():
     load_dotenv()
     start_time = time.time()
     setup_database()
+    
+    # Check for the --verbose flag
+    verbose = '--verbose' in sys.argv
+    # Filter out the verbose flag so it doesn't get treated as a keyword
+    args = [arg for arg in sys.argv[1:] if arg != '--verbose']
 
-    if len(sys.argv) > 1 and sys.argv[1] == '--retry-fallbacks':
-        retry_fallback_summaries()
-    elif len(sys.argv) > 1:
-        alert_keywords = sys.argv[1:]
+    if len(args) > 0 and args[0] == '--retry-fallbacks':
+        retry_fallback_summaries(verbose=verbose)
+    elif len(args) > 0:
+        alert_keywords = args
         print("\n-> Fetching Google Alerts...")
         service = get_gmail_service()
         if service:
             for keyword in alert_keywords:
                 email_bytes = get_latest_google_alert(service, keyword)
                 if email_bytes:
-                    parse_google_alert(keyword, email_bytes)
+                    parse_google_alert(keyword, email_bytes, verbose=verbose)
                 else:
                     print(f"  > No Google Alert emails found for '{keyword}'")
         
         print("\n-> Fetching RSS Feeds...")
         for name, url in RSS_FEEDS.items():
-            process_rss_feed(name, url)
+            process_rss_feed(name, url, verbose=verbose)
     else:
         print("\nUsage:")
         print("  Normal Run: python osint_aggregator.py \"<keyword1>\" ...")
         print("  Retry Run:  python osint_aggregator.py --retry-fallbacks")
+        print("  Add --verbose to any command to see detailed error output.")
         sys.exit(1)
 
     print("\n" + "="*20 + " PROCESSING SUMMARY " + "="*20)
