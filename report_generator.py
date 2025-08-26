@@ -92,7 +92,7 @@ def create_html_report(grouped_articles):
 </head>
 <body>
     <div class="container">
-        <h1>Cyber News Live - Weekly Threat Report</h1>
+        <h1>Weekly Threat Report</h1>
         <p style="text-align:center; color: #666;">Report Generated: {{ generation_date }}</p>
         
         {% for severity, articles in articles_by_severity.items() %}
