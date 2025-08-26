@@ -70,7 +70,12 @@ Before running, configure your API credentials. For security, store your keys in
     ```powershell
     python osint_aggregator.py "Ransomware" "Malware"
     ```
-
+### Verbose Mode (for Debugging)
+You can add the ```--verbose``` flag to either of the ```osint_aggregator.py``` commands to see detailed error messages for things like scraping failures or AI analysis issues. This is helpful for debugging.
+* **Example:**
+    ```bash
+    ./osint_aggregator.py "Ransomware" --verbose
+    ```
 ### Re-processing Run (retry failed scrapes with Selenium)
 * **Linux/macOS:**
     ```bash
