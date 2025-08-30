@@ -61,25 +61,29 @@ Before running, configure your API credentials. For security, store your keys in
 3.  Obtain your `credentials.json` for Gmail API access from Google Cloud Console, and place it in the root directory.
 
 ## Usage
-### Normal Run (collect new articles)
+The script is run from the command line and has two primary modes.
+
+### Normal Run (Collect New Articles)
+This command fetches all recent Google Alert digests and RSS feed articles.
 * **Linux/macOS:**
     ```bash
-    ./osint_aggregator.py "Ransomware" "Malware"
+    python3 osint_aggregator.py
     ```
 * **Windows:**
     ```powershell
-    python osint_aggregator.py "Ransomware" "Malware"
+    python osint_aggregator.py
     ```
-### Verbose Mode (for Debugging)
-You can add the ```--verbose``` flag to either of the ```osint_aggregator.py``` commands to see detailed error messages for things like scraping failures or AI analysis issues. This is helpful for debugging.
-* **Example:**
+* **Verbose Mode (for Debugging):**
+Add the `--verbose` flag to see detailed error messages for scraping or AI analysis failures.
     ```bash
-    ./osint_aggregator.py "Ransomware" --verbose
+    python3 osint_aggregator.py --verbose
     ```
-### Re-processing Run (retry failed scrapes with Selenium)
+
+### Re-processing Run ("Data Healing")
+This command retries any articles that previously failed to scrape correctly, using the more robust Selenium engine.
 * **Linux/macOS:**
     ```bash
-    ./osint_aggregator.py --retry-fallbacks
+    python3 osint_aggregator.py --retry-fallbacks
     ```
 * **Windows:**
     ```powershell
